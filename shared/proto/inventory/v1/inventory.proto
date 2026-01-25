@@ -4,7 +4,7 @@ package inventory.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/olezhek28/microservices-course-homework/homeworks/week1/shared/pkg/proto/inventory/v1;v1";
+option go_package = "github.com/kavshevnova/microservices-course/homeworks/week1/shared/pkg/proto/inventory/v1";
 
 service InventoryService {
   // GetPart возвращает информацию о детали по её UUID
