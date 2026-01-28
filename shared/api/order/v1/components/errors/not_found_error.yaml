@@ -1,0 +1,8 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "Order not found"
+    description: Описание ошибки

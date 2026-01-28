@@ -1,0 +1,9 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "Rate limit exceeded"
+    description: |
+      Пользователь отправил слишком много запросов за заданный промежуток времени.

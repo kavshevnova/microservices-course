@@ -1,0 +1,8 @@
+type: string
+enum:
+  - CARD
+  - SBP
+  - CREDIT_CARD
+  - INVESTOR_MONEY
+example: "CARD"
+description: Способ оплаты

@@ -1,0 +1,15 @@
+type: object
+required:
+  - order_uuid
+  - total_price
+properties:
+  order_uuid:
+    type: string
+    format: uuid
+    example: "550e8400-e29b-41d4-a716-446655440000"
+    description: UUID созданного заказа
+  total_price:
+    type: number
+    format: double
+    example: 12345.67
+    description: Итоговая стоимость

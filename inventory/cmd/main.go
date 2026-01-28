@@ -2,19 +2,30 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	v1 "shared/pkg/proto/inventory/v1"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"os/signal"
+	inventory_v1 "shared/pkg/proto/inventory/v1"
 	"sync"
+	"syscall"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
+const grpcPort = 5051
+
 type inventoryService struct {
-	v1.UnimplementedInventoryServiceServer
+	inventory_v1.UnimplementedInventoryServiceServer
 	mu   sync.RWMutex
-	data map[string]*v1.Part
+	data map[string]*inventory_v1.Part
 }
 
-func (i *inventoryService) GetPart(ctx context.Context, req *v1.GetPartRequest) (*v1.GetPartResponse, error) {
+func (i *inventoryService) GetPart(ctx context.Context, req *inventory_v1.GetPartRequest) (*inventory_v1.GetPartResponse, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -22,24 +33,24 @@ func (i *inventoryService) GetPart(ctx context.Context, req *v1.GetPartRequest) 
 	if !ok {
 		return nil, status.Error(codes.NotFound, req.GetUuid())
 	}
-	return &v1.GetPartResponse{
+	return &inventory_v1.GetPartResponse{
 		Part: part,
 	}, nil
 }
 
-func (i *inventoryService) ListParts(ctx context.Context, req *v1.ListPartsRequest) (*v1.ListPartsResponse, error) {
+func (i *inventoryService) ListParts(ctx context.Context, req *inventory_v1.ListPartsRequest) (*inventory_v1.ListPartsResponse, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
 	filter := prepareFilter(req.GetFilter())
 
-	var parts []*v1.Part
+	var parts []*inventory_v1.Part
 
 	if filter == nil {
 		for _, part := range i.data {
 			parts = append(parts, part)
 		}
-		return &v1.ListPartsResponse{Parts: parts}, nil
+		return &inventory_v1.ListPartsResponse{Parts: parts}, nil
 	}
 
 	for _, part := range i.data {
@@ -47,18 +58,18 @@ func (i *inventoryService) ListParts(ctx context.Context, req *v1.ListPartsReque
 			parts = append(parts, part)
 		}
 	}
-	return &v1.ListPartsResponse{Parts: parts}, nil
+	return &inventory_v1.ListPartsResponse{Parts: parts}, nil
 }
 
 type comlitedFilter struct {
 	uuids                 map[string]bool
 	names                 map[string]bool
-	categories            map[v1.Category]bool
+	categories            map[inventory_v1.Category]bool
 	manufacturerCountries map[string]bool
 	tags                  map[string]bool
 }
 
-func prepareFilter(filter *v1.PartsFilter) *comlitedFilter {
+func prepareFilter(filter *inventory_v1.PartsFilter) *comlitedFilter {
 	if filter == nil {
 		return nil
 	}
@@ -90,7 +101,7 @@ func prepareFilter(filter *v1.PartsFilter) *comlitedFilter {
 	}
 
 	if len(filter.Categories) > 0 {
-		cf.categories = make(map[v1.Category]bool)
+		cf.categories = make(map[inventory_v1.Category]bool)
 		for _, category := range filter.Categories {
 			cf.categories[category] = true
 		}
@@ -112,7 +123,7 @@ func prepareFilter(filter *v1.PartsFilter) *comlitedFilter {
 	return cf
 }
 
-func matchesFilter(part *v1.Part, filter *comlitedFilter) bool {
+func matchesFilter(part *inventory_v1.Part, filter *comlitedFilter) bool {
 	if filter.uuids != nil {
 		if !filter.uuids[part.Uuid] {
 			return false
@@ -148,14 +159,39 @@ func matchesFilter(part *v1.Part, filter *comlitedFilter) bool {
 	return true
 }
 
-//- `ListParts`:
-//    - Если все поля фильтра пусты — возвращаются все детали.
-//    - Фильтрация происходит по принципу:
-//        - *логическое ИЛИ внутри одного поля фильтра* (например, имя `"main"` **или** `"main booster"`)
-//        - *логическое И между различными полями* (например, категория = `ENGINE` **и** страна = `"Germany"`)
-//    - Допустимо реализовать фильтрацию через **несколько последовательных проходов**:
-//        - сначала по UUID,
-//        - затем по имени,
-//        - затем по категории,
-//        - затем по странам производителей,
-//        - затем по тегам.
+func main() {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
+	if err != nil {
+		log.Printf("failed to listen: %v", err)
+		return
+	}
+	defer func() {
+		if cerr := lis.Close(); cerr != nil {
+			log.Printf("failed to close listener: %v\n", cerr)
+		}
+	}()
+
+	inventoryGrpcServer := grpc.NewServer()
+	service := &inventoryService{
+		data: make(map[string]*inventory_v1.Part),
+	}
+
+	inventory_v1.RegisterInventoryServiceServer(inventoryGrpcServer, service)
+
+	reflection.Register(inventoryGrpcServer)
+
+	go func() {
+		log.Printf("GRPC serever listening on %d\n", grpcPort)
+		err = inventoryGrpcServer.Serve(lis)
+		if err != nil {
+			log.Printf("failed to serve: %v\n", err)
+			return
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Printf("Shutdown Server ...")
+	inventoryGrpcServer.GracefulStop()
+	log.Printf("Server stopped")
+}

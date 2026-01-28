@@ -1,0 +1,38 @@
+type: object
+required:
+  - order_uuid
+  - user_uuid
+  - part_uuids
+  - total_price
+  - status
+properties:
+  order_uuid:
+    type: string
+    format: uuid
+    description: UUID заказа
+  user_uuid:
+    type: string
+    format: uuid
+    description: UUID пользователя
+  part_uuids:
+    type: array
+    items:
+      type: string
+      format: uuid
+    description: Список UUID деталей
+  total_price:
+    type: number
+    format: double
+    description: Итоговая стоимость
+  transaction_uuid:
+    type: string
+    format: uuid
+    nullable: true
+    description: UUID транзакции (если оплачен)
+  payment_method:
+    $ref: "#/components/schemas/PaymentMethod"
+    nullable: true
+    description: Способ оплаты (если оплачен)
+  status:
+    $ref: "#/components/schemas/OrderStatus"
+    description: Статус заказа

@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  tittle: Order Service API
+  version: 1.0.0
+  description: API для управления заказами
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+paths:
+  /orders:
+    $ref: "./paths/orders.yaml"
+  /orders/{order_uuid}:
+    $ref: "./paths/order_by_uuid.yaml"
+  /orders/{order_uuid}/pay:
+    $ref: "./paths/order_pay.yaml"
+  /orders/{order_uuid}/cancel:
+    $ref: "./paths/order_cancel.yaml"
+
+components:
+  schemas:
+    CreateOrderRequest:
+     $ref: "./components/create_order_request.yaml"
+    CreateOrderResponse:
+     $ref: "./components/create_order_response.yaml"
+    GetOrderResponse:
+     $ref: "./components/get_order_response.yaml"
+    OrderDTO:
+     $ref: "./components/order_dto.yaml"
+    PayOrderRequest:
+     $ref: "./components/pay_order_request.yaml"
+    PayOrderResponse:
+     $ref: "./components/pay_order_response.yaml"
+
+    # Enums
+    OrderStatus:
+      $ref: "./components/enums/order_status.yaml"
+    PaymentMethod:
+      $ref: "./components/enums/payment_method.yaml"
+
+    # Errors - добавь ВСЕ
+    BadGatewayError:
+      $ref: "./components/errors/bad_gateway_error.yaml"
+    BadRequestError:
+      $ref: "./components/errors/bad_request_error.yaml"
+    ConflictError:
+      $ref: "./components/errors/conflict_error.yaml"
+    ForbiddenError:
+      $ref: "./components/errors/forbidden_error.yaml"
+    GenericError:
+      $ref: "./components/errors/generic_error.yaml"
+    InternalServerError:
+      $ref: "./components/errors/internal_server_error.yaml"
+    NotFoundError:
+      $ref: "./components/errors/not_found_error.yaml"
+    RateLimitError:
+      $ref: "./components/errors/rate_limit_error.yaml"
+    ServiceUnavailableError:
+      $ref: "./components/errors/service_unavailable_error.yaml"
+    UnauthorizedError:
+      $ref: "./components/errors/unauthorized_error.yaml"
+    ValidationError:
+      $ref: "./components/errors/validation_error.yaml"
+
+parameters:
+  OrderUuid:
+    $ref: "./params/order_uuid.yaml"

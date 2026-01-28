@@ -1,0 +1,19 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "Validation failed"
+  details:
+    type: array
+    items:
+      type: object
+      properties:
+        field:
+          type: string
+          example: "user_uuid"
+        message:
+          type: string
+          example: "must be a valid UUID"
+    description: Детали ошибок валидации

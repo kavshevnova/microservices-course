@@ -1,0 +1,8 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "Order is paid and cannot be canceled"
+    description: Описание ошибки

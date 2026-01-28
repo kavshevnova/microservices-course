@@ -1,0 +1,9 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "Unauthorized"
+    description: |
+      Для получения запрашиваемого ответа нужна аутентификация.

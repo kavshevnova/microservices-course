@@ -1,0 +1,8 @@
+type: object
+required:
+  - error
+properties:
+  error:
+    type: string
+    example: "An error occurred"
+    description: Общая ошибка

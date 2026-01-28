@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	inventoryv1 "shared/pkg/proto/inventory/v1"
-	paymentv1 "shared/pkg/proto/payment/v1"
+	inventory_v1 "shared/pkg/proto/inventory/v1"
+	payment_v1 "shared/pkg/proto/payment/v1"
 	"sync"
 	"syscall"
 	"time"
@@ -26,7 +26,7 @@ type PaymentMethod string
 
 const (
 	PaymentMethodUnknown       PaymentMethod = "UNKNOWN"
-	PaumentMethodCard          PaymentMethod = "CARD"
+	PaymentMethodCard          PaymentMethod = "CARD"
 	PaymentMethodSbp           PaymentMethod = "SBP"
 	PaymentMethodCreditCard    PaymentMethod = "CREDIT_CARD"
 	PaymentMethodInvestorMoney PaymentMethod = "INVESTOR_MONEY"
@@ -55,7 +55,8 @@ const (
 	httpPort             = "8080"
 	readHeaderTimeout    = 5 * time.Second
 	shutdownTimeout      = 10 * time.Second
-	inventoryServiceAddr = "localhost:50051"
+	inventoryServiceAddr = "localhost:5051"
+	paymentServiceAddr   = "localhost:5052"
 )
 
 type OrderStorage struct {
@@ -91,8 +92,8 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	inventoryReq := inventoryv1.ListPartsRequest{
-		Filter: &inventoryv1.PartsFilter{
+	inventoryReq := inventory_v1.ListPartsRequest{
+		Filter: &inventory_v1.PartsFilter{
 			Uuids: req.PartUUIDs,
 		},
 	}
@@ -133,7 +134,74 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) PayOrder(w http.ResponseWriter, r *http.Request) {
-	//TODO
+	orderUuid := chi.URLParam(r, "order_uuid")
+	if orderUuid == "" {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		PaymentMethod string `json:"payment_method"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.PaymentMethod == "" {
+		http.Error(w, "Payment method is required", http.StatusBadRequest)
+		return
+	}
+	method, err := stringToPaymentMethodEnum(req.PaymentMethod)
+	if err != nil {
+		http.Error(w, "Invalid payment method", http.StatusBadRequest)
+		return
+	}
+	s.storage.mu.Lock()
+	defer s.storage.mu.Unlock()
+	order, ok := s.storage.orders[orderUuid]
+	if !ok {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+	if order.Status != OrderStatusPendingPayment {
+		http.Error(w, fmt.Sprintf("Order cannot be paid in status: %s", order.Status), http.StatusConflict)
+		return
+	}
+	paymentReq := &payment_v1.PayOrderRequest{
+		OrderUuid:     order.OrderUuid,
+		UserUuid:      order.UserUuid,
+		PaymentMethod: method,
+	}
+	paymentResp, err := s.paymentClient.PayOrder(context.Background(), paymentReq)
+	if err != nil {
+		http.Error(w, "Failed to pay order", http.StatusInternalServerError)
+		return
+	}
+	order.Status = OrderStatusPaid
+	transactionUUID := paymentResp.TransactionUuid
+	order.TransactionUuid = &transactionUUID
+	order.PaymentMethod = PaymentMethod(req.PaymentMethod)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"transaction_uuid": transactionUUID})
+}
+
+func stringToPaymentMethodEnum(methodStr string) (payment_v1.PaymentMethod, error) {
+
+	method := PaymentMethod(methodStr)
+
+	switch method {
+	case PaymentMethodCard: // Обрати внимание на опечатку Paument!
+		return payment_v1.PaymentMethod_PAYMENT_METHOD_CARD, nil
+	case PaymentMethodSbp:
+		return payment_v1.PaymentMethod_PAYMENT_METHOD_SBP, nil
+	case PaymentMethodCreditCard:
+		return payment_v1.PaymentMethod_PAYMENT_METHOD_CREDIT_CARD, nil
+	case PaymentMethodInvestorMoney:
+		return payment_v1.PaymentMethod_PAYMENT_METHOD_INVESTOR_MONEY, nil
+	default:
+		return payment_v1.PaymentMethod_PAYMENT_METHOD_UNSPECIFIED,
+			fmt.Errorf("unknown payment method: %s", methodStr)
+	}
 }
 
 func (s *Server) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +251,8 @@ func (s *Server) CancelOrder(w http.ResponseWriter, r *http.Request) {
 type Server struct {
 	address         string
 	storage         *OrderStorage
-	inventoryClient inventoryv1.InventoryServiceClient
+	inventoryClient inventory_v1.InventoryServiceClient
+	paymentClient   payment_v1.PaymentServiceClient
 }
 
 func main() {
@@ -196,7 +265,15 @@ func main() {
 	}
 	defer inventoryConn.Close()
 
-	InventoryClient := inventoryv1.NewInventoryServiceClient(inventoryConn)
+	InventoryClient := inventory_v1.NewInventoryServiceClient(inventoryConn)
+
+	paymentConn, err := grpc.Dial(paymentServiceAddr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("Failed to connect to PaymentService: %v", err)
+	}
+	defer paymentConn.Close()
+
+	PaymentClient := payment_v1.NewPaymentServiceClient(paymentConn)
 
 	router := chi.NewRouter()
 
@@ -207,9 +284,19 @@ func main() {
 	server := &Server{
 		storage:         storage,
 		inventoryClient: InventoryClient,
+		paymentClient:   PaymentClient,
 	}
 
-	server.registerRoutes()
+	router.Route("/api/v1", func(router chi.Router) {
+		router.Route("/order", func(router chi.Router) {
+			router.Post("/", server.CreateOrder)
+			router.Route("/{order_uuid}", func(router chi.Router) {
+				router.Get("/", server.GetOrder)
+				router.Post("/pay", server.PayOrder)
+				router.Post("/cancel", server.CancelOrder)
+			})
+		})
+	})
 
 	httpServer := &http.Server{
 		Addr:        net.JoinHostPort("localhost", httpPort),
